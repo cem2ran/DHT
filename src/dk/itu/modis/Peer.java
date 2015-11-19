@@ -3,6 +3,7 @@ import javafx.util.Pair;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.*;
@@ -13,14 +14,14 @@ public class Peer {
     private final Map<Integer, String> values = new HashMap<>();
     public final Map<UUID, String> routingTable;
 
-    public final UUID id;
+    public final UUID my_uuid;
     public final String host;
     public final int port;
 
-    public final static String LEAVE_MSG = "LEAVE", JOIN_MSG = "JOIN", CLOSEST_MSG = "CLOSEST";
+    public final static String LEAVE_MSG = "LEAVE", JOIN_MSG = "JOIN", CLOSEST_MSG = "CLOSEST", COPY_ROUTING_TABLE = "COPY_ROUTING_TABLE";
 
-    protected Peer(UUID id, String host, int port, Map<UUID, String> routingTable){
-        this.id = id;
+    protected Peer(UUID my_uuid, String host, int port, Map<UUID, String> routingTable){
+        this.my_uuid = my_uuid;
         this.routingTable = routingTable;
         this.host = host;
         this.port = port;
@@ -32,10 +33,12 @@ public class Peer {
 
         if(args.length == 1){
             //boot peer
-            Peer me = new Peer(UUID.randomUUID(), "localhost", Integer.parseInt(args[0]), new ConcurrentHashMap<>() );
-            me.routingTable.put(me.id, me.host+":"+me.port);
+            Peer me = new Peer(UUID.randomUUID(), myhost, Integer.parseInt(args[0]), new ConcurrentHashMap<>() );
+//            me.routingTable.put(me.my_uuid, myhost + ":" + me.port);
+            System.out.println("booted...");
             me.receive();
         }else if(args.length > 1){
+            //myo
             int myPort = 0;
             String hostIP = null;
             int hostPort = 0;
@@ -49,8 +52,9 @@ public class Peer {
 
             try {
                 Peer me = join(myhost, myPort, hostIP, hostPort);
+//                me.routingTable.put(me.my_uuid, me.host+":"+me.port);
+                System.out.println("ready to receive");
                 me.receive();
-
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -73,25 +77,37 @@ public class Peer {
 
                             String connectedHost = socket.getRemoteSocketAddress().toString();
                             int connectedPort = socket.getPort();
-
+                            //TODO should get which port to contact peer on!!
                             if(o instanceof String){
                                 String[] msg = o.toString().split(":");
                                 ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
 
+//                                System.out.println("received: " + o.toString());
+
                                 switch (msg[0]){
                                     case JOIN_MSG:
-
                                         //replyWithNodesUUIDAndRoutingTable
-                                        out.writeObject(routingTable); //return a copy of routing table
+                                        Map tmpTable = new ConcurrentHashMap<UUID, String>();
+                                        tmpTable.putAll(routingTable);
+                                        tmpTable.put(my_uuid, host+":"+port);
+
+                                        out.writeObject(tmpTable); //return a copy of routing table
                                         out.close();
+                                        System.out.println("sent routing table");
+                                        System.out.println(tmpTable.toString());
+
                                         break;
 
                                     case LEAVE_MSG:
                                         removeHostFromRoutingTable(msg[1]);
+                                        System.out.println("removed " + msg[1] + " from routing table");
                                         break;
 
                                     case CLOSEST_MSG:
                                         UUID target = UUID.fromString(msg[1]);
+                                        if(target == null){
+                                            System.out.println("looking for null from " + connectedPort);
+                                        }
                                         //replyWithNodesUUIDAndRoutingTable
                                         UUID[] sorted = getSortedRoutingTableByDistanceToTarget(target);
                                         UUID closest = sorted[0];
@@ -100,24 +116,43 @@ public class Peer {
                                         out.close();
 
                                         //find out if we should update our own table
-                                        final UUID meAsTarget = id;
-                                        UUID[] sortedByMe = getSortedRoutingTableByDistanceToTarget(meAsTarget);
+                                        //final UUID meAsTarget = my_uuid;
+                                        //UUID[] sortedByMe = getSortedRoutingTableByDistanceToTarget(meAsTarget);
 
                                         //add those peers that we haven't met before
-                                        for (int i = 0; i < 4; i++) {
-                                            if(!routingTable.containsKey(sortedByMe[i])){
-                                                routingTable.put(sortedByMe[i], connectedHost+":"+connectedPort);
-                                            }
-                                        }
+//                                        try {
+//                                            for (int i = 0; i < routingTable.size(); i++) {
+//                                                if (!routingTable.containsKey(sortedByMe[i])) {
+                                                    //routingTable.put(target, connectedHost + ":" + connectedPort);
+//                                                }
+//                                            }
+//                                        } catch (Exception e) {
+//                                            System.out.println("table size: " + routingTable.size());
+//                                        }
 
                                         //remove those peers that are further than 4 peers away
-                                        for (int i = 4; i < sortedByMe.length; i++) {
-                                            routingTable.remove(sortedByMe[i]);
-                                        }
+//                                        for (int i = 4; i < sortedByMe.length; i++) {
+//                                            routingTable.remove(sortedByMe[i]);
+//                                        }
                                         break;
+                                    case COPY_ROUTING_TABLE:
+                                        Map tmpTable1 = new ConcurrentHashMap<UUID, String>();
+                                        tmpTable1.putAll(routingTable);
+                                        tmpTable1.put(my_uuid, host+":"+port);
+                                        out.writeObject(tmpTable1);
+                                        out.close();
+                                        System.out.println("sent routing table");
+                                        break;
+                                }
+
+                                //TODO update our routing table
+                                if(msg.length == 2){
+                                    UUID his_uuid = UUID.fromString(msg[1]);
+                                    addAndUpdateRoutingTable(his_uuid, connectedHost+":"+connectedPort);
                                 }
                             }else{
                                 //Other object types
+                                System.out.println("not a string");
                             }
 
                         } catch (IOException e) {
@@ -135,6 +170,18 @@ public class Peer {
         }
     }
 
+    private void addAndUpdateRoutingTable(UUID his_uuid, String ip_port) {
+        routingTable.put(his_uuid, ip_port);
+        UUID[] sorted = getSortedRoutingTableByDistanceToTarget(my_uuid);
+
+        //remove furthest peers from table
+        if(sorted.length > 4){
+            for (int i = 4; i < sorted.length; i++) {
+                routingTable.remove(sorted[i]);
+            }
+        }
+    }
+
     private UUID[] getSortedRoutingTableByDistanceToTarget(UUID target) {
         //sort list
         UUID[] sorted = routingTable.keySet().toArray(new UUID[routingTable.size()]);
@@ -149,38 +196,43 @@ public class Peer {
 
     public static Peer join(String myHost, int myPort, String host, int host_port) throws Exception{
         try {
-            Socket client = new Socket(myHost, myPort);
+            Socket boot_socket = new Socket(host, host_port);
 
-            ObjectOutputStream out = new ObjectOutputStream(client.getOutputStream());
+            ObjectOutputStream out_boot = new ObjectOutputStream(boot_socket.getOutputStream());
             //TODO should maybe be done by boot peer
             UUID uuid = UUID.randomUUID();
-            out.write((JOIN_MSG+":"+uuid.toString()).getBytes("UTF-8"));
+            out_boot.writeObject((JOIN_MSG+":"+uuid.toString()+":"+myPort));
+            System.out.println("sent join msg");
 
-            ObjectInputStream in = new ObjectInputStream(client.getInputStream());
+            ObjectInputStream in_boot = new ObjectInputStream(boot_socket.getInputStream());
 
-            Map<UUID, String> bootNodeRoutingTable = (ConcurrentHashMap<UUID, String>) in.readObject(); //blocks
+            Map<UUID, String> boot_routingTable = (ConcurrentHashMap<UUID, String>) in_boot.readObject(); //blocks
 
-            assert bootNodeRoutingTable.size() > 0;
+            assert boot_routingTable.size() > 0;
 
-            if(bootNodeRoutingTable.size() == 1){
-                //No other nodes so we do not findOtherNodes
-                return new Peer(uuid, myHost, myPort, bootNodeRoutingTable);
+            if(boot_routingTable.size() == 1){
+                //only boot node -> we do not find closest peers
+                return new Peer(uuid, myHost, myPort, boot_routingTable);
             }
+
             //TODO create new routing table.
-            Map routingTable = new ConcurrentHashMap<>();
 
             //findClosests neighbours
-            List<Pair<UUID, String>> closest = findClosest(uuid, bootNodeRoutingTable);
+            Pair<UUID, String> closest = findClosest(uuid, boot_routingTable);
 
-            //take the last 4 peers and put them as our neighbours in routing table
-            try {
-                for (int i = closest.size(); i > closest.size()-4; i--) {
-                    routingTable.put(closest.get(i).getKey(), closest.get(i).getValue());
-                }
-            } catch (Exception e) {
-                System.out.println("did not find 4 neighbours this time...");
-            }
+            //get his credentials
+            String[] ip_port = closest.getValue().split(":");
 
+            //get his routing table
+            Socket socket_to_closest_peer = new Socket(ip_port[0].replace("/", ""), Integer.parseInt(ip_port[1]));
+            ObjectOutputStream out_closest = new ObjectOutputStream(socket_to_closest_peer.getOutputStream());
+            out_closest.writeObject(COPY_ROUTING_TABLE+":"+uuid.toString());
+
+            //wait for table
+            ObjectInputStream in_closest = new ObjectInputStream(socket_to_closest_peer.getInputStream());
+            Map routingTable = (ConcurrentHashMap<UUID, String>) in_closest.readObject(); //blocks until it gets the table (potential failure!)
+
+            System.out.println("done joining");
             return new Peer(uuid, myHost, myPort, routingTable);
         } catch (IOException e) {
             e.printStackTrace();
@@ -220,22 +272,24 @@ public class Peer {
     }
 
     public static int distance(UUID one, UUID two){
-        return one.hashCode() ^ two.hashCode();
+        return Math.abs(one.hashCode() - two.hashCode());
     }
 
     public static Pair<UUID, String> requestClosests(UUID target, String hostip){
+        System.out.println(hostip);
         String[] host_ip = hostip.split(":");
         try {
             Socket s = new Socket(host_ip[0], Integer.parseInt(host_ip[1]));
             ObjectOutputStream out = new ObjectOutputStream(s.getOutputStream());
 
             //send message to peer asking for his closest peer to target
-            out.write((CLOSEST_MSG+":"+target).getBytes("UTF-8"));
+            out.writeObject(CLOSEST_MSG+":"+target);
 
             ObjectInputStream in = new ObjectInputStream(s.getInputStream());
             Pair<UUID, String> node = (Pair<UUID, String>) in.readObject();
+            out.close();
+            in.close();
             s.close();
-
             return node;
 
         } catch (IOException e) {
@@ -250,7 +304,7 @@ public class Peer {
     /*
      * find the closest peer in routing table
      */
-    public static List<Pair<UUID, String>> findClosest(UUID target, Map<UUID, String> routingTable){
+    public static Pair<UUID, String> findClosest(UUID target, Map<UUID, String> routingTable){
 
         //sort list
         UUID[] sorted = routingTable.keySet().toArray(new UUID[routingTable.size()]);
@@ -258,26 +312,18 @@ public class Peer {
 
         UUID closest = sorted[0], prevClosest = null;
 
-        Pair<UUID, String> node = null;
-
-        List<Pair<UUID, String>> lastContacted = new ArrayList<>();
+        Pair<UUID, String> node = new Pair<>(closest, routingTable.get(closest));
 
         while( closest != target && closest != prevClosest ){
             prevClosest = closest;
-            node = requestClosests(target, routingTable.get(closest));
-            lastContacted.add(node);
+            String p = routingTable.get(closest);
+            if(p != null) {
+                node = requestClosests(target, p);
+            }
             if(node == null) return null;
             else closest = node.getKey();
         }
 
-        return lastContacted;
-
-        //if(closest == target)
-        //    return node;
-        //else {
-        //
-        //};
-
-
+        return node;
     }
 }
