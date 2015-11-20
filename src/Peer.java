@@ -242,27 +242,27 @@ public class Peer {
 
                                         //TODO send to our nearest neighbour
 
-                                        for (int i = 0; i < routingTable.size(); i++) { //indexes never used!
-
-                                            int size = routingTable.size();
-                                            Key[] keys = getSortedRoutingTableByDistanceToTarget(my_key);
-                                            System.out.println(keys[1]);
-                                            assert routingTable.size() == size;
-                                            ip_port = routingTable.get(keys[1]).split(":");
-                                            Socket socket2;
-
-                                            try {
-                                                socket2 = new Socket(ip_port[0], Integer.parseInt(ip_port[1]));
-                                                ObjectOutputStream out3 = new ObjectOutputStream(socket2.getOutputStream());
-                                                msg.setType(Type.REPLICATE);
-                                                out3.writeObject(msg);
-
-                                            } catch (Exception e) {
-                                                routingTable.remove(keys[1]);
-
-                                            }
-                                            break;
-                                        }
+//                                        for (int i = 0; i < routingTable.size(); i++) { //indexes never used!
+//
+//                                            int size = routingTable.size();
+//                                            Key[] keys = getSortedRoutingTableByDistanceToTarget(my_key);
+//                                            System.out.println(keys[1]);
+//                                            assert routingTable.size() == size;
+//                                            ip_port = routingTable.get(keys[1]).split(":");
+//                                            Socket socket2;
+//
+//                                            try {
+//                                                socket2 = new Socket(ip_port[0], Integer.parseInt(ip_port[1]));
+//                                                ObjectOutputStream out3 = new ObjectOutputStream(socket2.getOutputStream());
+//                                                msg.setType(Type.REPLICATE);
+//                                                out3.writeObject(msg);
+//
+//                                            } catch (Exception e) {
+//                                                routingTable.remove(keys[1]);
+//
+//                                            }
+//                                            break;
+//                                        }
 
                                         break;
 
@@ -281,11 +281,11 @@ public class Peer {
                                         break;
 
 
-                                    case REPLICATE:
-                                        Pair<Key, String> p5 = (Pair<Key, String>) msg.getResource();
-                                        resources.put(p5.getKey(), p5.getValue());
-                                        System.out.println("Stored: "+ p5.getKey() + " -> " + p5.getValue());
-                                        break;
+//                                    case REPLICATE:
+//                                        Pair<Key, String> p5 = (Pair<Key, String>) msg.getResource();
+//                                        resources.put(p5.getKey(), p5.getValue());
+//                                        System.out.println("Stored: "+ p5.getKey() + " -> " + p5.getValue());
+//                                        break;
 
                                 }
                             }
@@ -348,16 +348,16 @@ public class Peer {
         int limit = 3;
         Key[] keys = getSortedRoutingTableByDistanceToTarget(my_key);
 
-//        if(keys.length > limit+1){
-//            System.out.println("managing size of routing table");
-//            try {
-//                for(int i = limit+1; i < keys.length; i++){
-//                    routingTable.remove(keys[i]);
-//                }
-//            } catch (Exception e) {
-//                e.printStackTrace();
-//            }
-//        }
+        if(keys.length > limit+1){
+            System.out.println("managing size of routing table");
+            try {
+                for(int i = limit+1; i < keys.length; i++){
+                    routingTable.remove(keys[i]);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
 
     }
     private Key[] getSortedRoutingTableByDistanceToTarget(Key target) {
