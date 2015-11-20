@@ -1,4 +1,4 @@
-package dk.itu.modis; /**
+/**
  * @author Joshua Kissoon
  * @created 20140215
  * @desc Represents a Kademlia Node ID
@@ -58,6 +58,13 @@ public class Key implements Serializable
             throw new IllegalArgumentException("Specified Data need to be " + (ID_LENGTH / 8) + " characters long. Data Given: '" + new String(bytes) + "'");
         }
         this.keyBytes = bytes;
+    }
+
+    /**
+     *
+     */
+    public Key(String hexFormat, Object o){
+        this.keyBytes = hexStringToByteArray(hexFormat);
     }
 
     /**
@@ -262,4 +269,16 @@ public class Key implements Serializable
         return this.hexRepresentation();
     }
 
+    /**
+     author http://stackoverflow.com/a/140861
+     */
+    public static byte[] hexStringToByteArray(String s) {
+        int len = s.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
+                    + Character.digit(s.charAt(i+1), 16));
+        }
+        return data;
+    }
 }
